@@ -23,23 +23,28 @@ Station = Base.classes.station
 #Flask Set up
 app = Flask(__name__)
 
-app.route("/")
+@app.route("/")
 def welcome():
     return(
         f"Avaible Routes:<br/>"
-        f"/api/v1.0/percipitation<br/>"
-        f"/api/v1.0/stations<br/>"
-        f"/api/v1.0/tobs<br/>"
-        f"/api/v1.0/start (enter as YYYY-MM-DD)<br/>"
-        f"/api/v1.0/start/end (enter as YYYY-MM-DD/YYYY-MM-DD)"
+        f"<a href=/api/v1.0/percipitation>Percipitation</a><br/>"
+        f"(/api/v1.0/percipitation)<br/>"
+        f"<a href=/api/v1.0/stations>Stations</a><br/>"
+        f"(/api/v1.0/stations)<br/>"
+        f"<a href=/api/v1.0/tobs>TOBS</a><br/>"
+        f"(/api/v1.0/tobs)<br/>"
+        f"<a href=/api/v1.0/start>Start Date</a><br/>"
+        f"(/api/v1.0/start (enter as YYYY-MM-DD))<br/>"
+        f"<a href=/api/v1.0/start/end>Start Date and End Date</a><br/>"
+        f"(/api/v1.0/start/end (enter as YYYY-MM-DD/YYYY-MM-DD))"
    )
 
 #Convert query results to a dictionary 
 @app.route("/api/v1.0/percipitation")
-def percipitation():
+def precipitation():
     session = Session(engine)
-    results = (session.query(Measurement.date, Measurement.tobs).order_by(Measurement.date))
-
+    results = (session.query(Measurement.date, Measurement.tobs)
+                      .order_by(Measurement.date))
     pd_tobs = []
     for each_row in results:
         dt_dict = {}
@@ -66,7 +71,7 @@ def tobs():
                           .first())
     ld_str = str(ld)
     ld_str = re.sub("'|,", "", ld_str)
-    ld_obj = dt.datetime.strptime(ld_str, '(%Y-%m-%d')
+    ld_obj = dt.datetime.strptime(ld_str, '(%Y-%m-%d)')
     query_start_date = dt.date(ld_obj.year, ld_obj.month, ld_obj.day) - dt.timedelta(days = 366)
     station_list_q = (session.query(Measurement.station, func.count(Measurement.station))
                              .group_by(Measurement.station)
@@ -87,3 +92,82 @@ def tobs():
         tobs_list.append(line)
     return jsonify(tobs_list)
 
+# Calculate `TMIN`, `TAVG`, and `TMAX` for start date
+@app.route("/api/v1.0/<start>")
+def start_only(start):
+    session = Session(engine)
+    dr_max = session.query(Measurement.date).order_by(Measurement.date.desc()).first()
+    dr_max_str = str(dr_max)
+    dr_max_str = re.sub("'|,", "",dr_max_str)
+    print (dr_max_str)
+    dr_min = session.query(Measurement.date).first()
+    dr_min_str = str(dr_min)
+    dr_min_str = re.sub("'|,", "",dr_min_str)
+    print (dr_min_str)
+
+
+    # Check for valid entry of start date
+    valid_entry = session.query(exists().where(Measurement.date == start)).scalar()
+ 
+    if valid_entry:
+
+    	results = (session.query(func.min(Measurement.tobs)
+    				 ,func.avg(Measurement.tobs)
+    				 ,func.max(Measurement.tobs))
+    				 	  .filter(Measurement.date >= start).all())
+
+    	tmin =results[0][0]
+    	tavg ='{0:.4}'.format(results[0][1])
+    	tmax =results[0][2]
+    
+    	result_printout =( ['Entered Start Date: ' + start,
+    						'The lowest Temperature was: '  + str(tmin) + ' F',
+    						'The average Temperature was: ' + str(tavg) + ' F',
+    						'The highest Temperature was: ' + str(tmax) + ' F'])
+    	return jsonify(result_printout)
+
+    return jsonify({"Direction": f"Add Start Date to End of URL. Date Range is {dr_min_str} to {dr_max_str}."})
+
+# Calculate the `TMIN`, `TAVG`, and `TMAX` for dates between the start and end date
+@app.route("/api/v1.0/<start>/<end>") 
+def start_end(start, end):
+    session = Session(engine)
+    dr_max = session.query(Measurement.date).order_by(Measurement.date.desc()).first()
+    dr_max_str = str(dr_max)
+    dr_max_str = re.sub("'|,", "",dr_max_str)
+    print (dr_max_str)
+    dr_min = session.query(Measurement.date).first()
+    dr_min_str = str(dr_min)
+    dr_min_str = re.sub("'|,", "",dr_min_str)
+    print (dr_min_str)
+
+    # Check for valid entry of start date
+    valid_entry_start = session.query(exists().where(Measurement.date == start)).scalar()
+ 	
+ 	# Check for valid entry of end date
+    valid_entry_end = session.query(exists().where(Measurement.date == end)).scalar()
+
+    if valid_entry_start and valid_entry_end:
+
+    	results = (session.query(func.min(Measurement.tobs)
+    				 ,func.avg(Measurement.tobs)
+    				 ,func.max(Measurement.tobs))
+    					  .filter(Measurement.date >= start)
+    				  	  .filter(Measurement.date <= end).all())
+
+    	tmin =results[0][0]
+    	tavg ='{0:.4}'.format(results[0][1])
+    	tmax =results[0][2]
+    
+    	result_printout =( ['Entered Start Date: ' + start,
+    						'Entered End Date: ' + end,
+    						'The lowest Temperature was: '  + str(tmin) + ' F',
+    						'The average Temperature was: ' + str(tavg) + ' F',
+    						'The highest Temperature was: ' + str(tmax) + ' F'])
+    	return jsonify(result_printout)
+
+    return jsonify({"Direction": f"Add Start Date and End Date to End of URL. Date Range is {dr_min_str} to {dr_max_str}"}), 404
+
+
+if __name__ == '__main__':
+    app.run(debug=True)
